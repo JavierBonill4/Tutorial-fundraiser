@@ -571,7 +571,7 @@ td.num { font-family: "JetBrains Mono", monospace; font-variant-numeric: tabular
     <dl class="facts">
       <div class="fact"><dt>Level</dt><dd>Open-ended</dd></div>
       <div class="fact"><dt>Time</dt><dd>6–10 hours</dd></div>
-      <div class="fact"><dt>Stack</dt><dd>Anchor 0.30 · SPL Token</dd></div>
+      <div class="fact"><dt>Stack</dt><dd>Anchor 1.1.2 · SPL Token</dd></div>
       <div class="fact"><dt>Tests</dt><dd>TypeScript · Mocha</dd></div>
       <div class="fact"><dt>Submit</dt><dd>Pull request</dd></div>
     </dl>
@@ -641,7 +641,7 @@ td.num { font-family: "JetBrains Mono", monospace; font-variant-numeric: tabular
 
       <h4>What you will be working with</h4>
       <div class="limits">
-        <div class="limit"><b>Anchor 0.30</b><span>Back to a framework after the Pinocchio detour — and you will appreciate it.</span></div>
+        <div class="limit"><b>Anchor 1.1.2</b><span>Back to a framework after the Pinocchio detour — and you will appreciate it.</span></div>
         <div class="limit"><b>SPL Token</b><span>Transfers today. Minting, if your feature rewards people.</span></div>
         <div class="limit"><b>PDA signing</b><span>The fundraiser PDA already signs payouts. Yours may need it to sign more.</span></div>
         <div class="limit"><b>Your own design</b><span>State layout, seeds, error cases, failure modes. All yours.</span></div>
@@ -687,10 +687,37 @@ git remote -v
         building — it is the first thing a reviewer reads.
       </p>
 
-      <h4>5 · Install and build</h4>
+      <h4>5 · Check your toolchain</h4>
+      <p>
+        This repo is pinned. If your versions do not match, fix that before anything else —
+        a version mismatch here produces errors that look like bugs in your code.
+      </p>
+<pre><code>anchor --version    <span class="c-com"># anchor-cli 1.1.2</span>
+solana --version    <span class="c-com"># 3.1 or newer</span>
+node --version      <span class="c-com"># 20 or newer</span></code></pre>
+      <p>
+        If Anchor is wrong: <code>avm install 1.1.2 &amp;&amp; avm use 1.1.2</code>. The program
+        pins <code>anchor-lang</code> and <code>anchor-spl</code> to exactly
+        <code>=1.1.2</code>, so the CLI has to match.
+      </p>
+
+      <h4>6 · Install, build, sync, test</h4>
 <pre><code>yarn install
 anchor build
+anchor keys sync   <span class="c-com"># first time only</span>
+anchor build
 anchor test</code></pre>
+
+      <div class="note">
+        <span class="note-label">Why <code>anchor keys sync</code></span>
+        The repo declares a program id whose keypair it does not ship, so your first
+        <code>anchor build</code> generates a different one and <code>anchor test</code> fails
+        with <code>DeclaredProgramIdMismatch</code>. <code>keys sync</code> rewrites
+        <code>declare_id!</code> and <code>Anchor.toml</code> to match the keypair you just
+        generated. Run it once, rebuild, and forget about it.
+        <br /><br />
+        That id change is yours alone — leave it out of your pull request.
+      </div>
 
       <div class="note warn">
         <span class="note-label">The existing tests do not assert anything</span>
@@ -777,8 +804,8 @@ anchor test</code></pre>
         <table>
           <thead><tr><th>Instruction</th><th>Refuses when</th></tr></thead>
           <tbody>
-            <tr><td class="num">initialize</td><td>the target is below the minimum</td></tr>
-            <tr><td class="num">contribute</td><td>the amount is too small; above 10% of the target in one go; the cumulative total for this contributor would pass 10%; the window has closed</td></tr>
+            <tr><td class="num">initialize</td><td>the target is not more than 3 whole tokens</td></tr>
+            <tr><td class="num">contribute</td><td>the amount is under one whole token; above 10% of the target in one go; the cumulative total for this contributor would pass 10%; the window has closed</td></tr>
             <tr><td class="num">check_contributions</td><td>the vault is below the target</td></tr>
             <tr><td class="num">refund</td><td>the window is still open; the target was met</td></tr>
           </tbody>
@@ -853,12 +880,17 @@ anchor test</code></pre>
           <p><strong>Where it hooks.</strong> The end of <code>contribute</code>, after
           <code>current_amount</code> has been updated. Nothing else changes the total upward.</p>
           <div class="note warn">
-            <span class="note-label">The trap: one contribution can cross two lines</span>
-            Someone contributes 10% of the target when the vault is at 45%. You are now past the
-            50% mark but you were never <em>at</em> it. Your check has to be "which milestones
-            are now satisfied and have not fired yet", not "did this contribution land exactly on
-            a boundary". Loop the thresholds; do not write three <code>if</code> statements that
-            each assume they run alone.
+            <span class="note-label">The trap: a contribution can jump past a mark</span>
+            Someone contributes 10% of the target when the vault is at 20%. You are now past the
+            25% mark but the vault was never <em>at</em> 25%. Your check has to be "which
+            milestones are now satisfied and have not fired yet", not "did this contribution land
+            exactly on a boundary". Loop the thresholds; do not write three <code>if</code>
+            statements that each assume they run alone.
+            <br /><br />
+            Worth knowing: <code>contribute</code> caps any one person at 10% of the target, so a
+            single contribution moves the total by at most 10 percentage points and can never skip
+            a whole quarter. Write the loop anyway — it is the correct shape, and it stays correct
+            if someone changes the cap.
           </div>
           <p>
             <strong>Second trap.</strong> <code>refund</code> reduces <code>current_amount</code>.
@@ -935,9 +967,10 @@ pub ticket_end: u64,     <span class="c-com">// exclusive</span></code></pre>
           </p>
           <p>
             <strong>The ambitious version.</strong> Metaplex Token Metadata via CPI. Be warned that
-            <code>mpl-token-metadata</code> and Anchor 0.30 have version opinions about each other,
-            and you may spend your afternoon in <code>Cargo.toml</code> rather than in your
-            program.
+            <code>mpl-token-metadata</code> and <code>anchor-spl</code> have version opinions
+            about each other, and the program's dependencies are pinned to exactly
+            <code>=1.1.2</code> — so you may spend your afternoon in <code>Cargo.toml</code>
+            rather than in your program.
           </p>
           <div class="note warn">
             <span class="note-label">The trap: what happens on refund?</span>
@@ -1245,12 +1278,25 @@ pub ticket_end: u64,     <span class="c-com">// exclusive</span></code></pre>
     &amp;[self.fundraiser.bump],
 ]];
 
-<span class="c-key">let</span> cpi_ctx = CpiContext::<span class="c-fn">new_with_signer</span>(cpi_program, cpi_accounts, &amp;signer_seeds);</code></pre>
+<span class="c-key">let</span> cpi_ctx = CpiContext::<span class="c-fn">new_with_signer</span>(
+    self.token_program.<span class="c-fn">key</span>(),   <span class="c-com">// an address, not an AccountInfo</span>
+    cpi_accounts,
+    &amp;signer_seeds,
+);</code></pre>
       <p>
         The seeds must be exactly the derivation, in order, bump last. Get one element wrong and
         you do not get an error explaining that — you get a different address, and the runtime
         declines to sign for an account you never asked about.
       </p>
+
+      <div class="note warn">
+        <span class="note-label">Changed in Anchor 1.0</span>
+        <code>CpiContext::new</code> and <code>new_with_signer</code> take the program's
+        <strong>address</strong> — <code>self.token_program.key()</code> — where older code passed
+        <code>self.token_program.to_account_info()</code>. Every tutorial and StackOverflow answer
+        written before Anchor 1.0 has the old form, and the compiler error it produces
+        (a type mismatch on <code>Pubkey</code>) does not explain why.
+      </div>
 
       <details>
         <summary><span class="tag">Hint</span> Minting tokens from the program (options C and D)</summary>
@@ -1264,7 +1310,7 @@ pub ticket_end: u64,     <span class="c-com">// exclusive</span></code></pre>
 
 <span class="c-fn">mint_to</span>(
     CpiContext::<span class="c-fn">new_with_signer</span>(
-        self.token_program.<span class="c-fn">to_account_info</span>(),
+        self.token_program.<span class="c-fn">key</span>(),
         MintTo {
             mint: self.reward_mint.<span class="c-fn">to_account_info</span>(),
             to: self.contributor_reward_ata.<span class="c-fn">to_account_info</span>(),
@@ -1385,7 +1431,10 @@ pub ticket_end: u64,     <span class="c-com">// exclusive</span></code></pre>
             runs the program against an in-process bank instead of a validator, and lets you set
             the sysvar directly.
           </p>
-<pre><code>yarn add -D solana-bankrun anchor-bankrun</code></pre>
+      <p>
+        Both packages are already in <code>package.json</code>, so
+        <code>yarn install</code> is all you need.
+      </p>
 <pre><code><span class="c-key">import</span> { startAnchor, BankrunProvider } <span class="c-key">from</span> <span class="c-str">"anchor-bankrun"</span>;
 <span class="c-key">import</span> { Clock } <span class="c-key">from</span> <span class="c-str">"solana-bankrun"</span>;
 
@@ -1467,21 +1516,18 @@ assert.<span class="c-fn">strictEqual</span>(account.milestonesFired, <span clas
 <pre><code>git status
 git diff</code></pre>
       <div class="note warn">
-        <span class="note-label">This repo has no .gitignore at all</span>
-        Not one line. <code>target/</code>, <code>node_modules/</code>, <code>.anchor/</code> and
-        your program keypair are all untracked and unignored, and you have run both
-        <code>yarn install</code> and <code>anchor build</code>. A single <code>git add .</code>
-        is a pull request with tens of thousands of files in it.
+        <span class="note-label">Read the diff before you stage it</span>
+        The <code>.gitignore</code> covers <code>target/</code>, <code>node_modules/</code> and
+        <code>.anchor/</code>, so <code>git add .</code> will not drown your pull request. It will
+        still happily include things you did not mean to send — the program id
+        <code>anchor keys sync</code> rewrote, a scratch test, a commented-out experiment.
         <br /><br />
-        Add a <code>.gitignore</code> as its own commit — it is a genuine contribution — and name
-        your files explicitly regardless.
+        Name your files explicitly. It takes ten seconds and it is the difference between a
+        reviewable diff and one nobody wants to open.
       </div>
 
       <h4>3 · Commit in readable pieces</h4>
-<pre><code>git add .gitignore
-git commit -m <span class="c-str">"Add a .gitignore for target, node_modules and .anchor"</span>
-
-git add programs/fundraiser/src/state programs/fundraiser/src/error.rs
+<pre><code>git add programs/fundraiser/src/state programs/fundraiser/src/error.rs
 git commit -m <span class="c-str">"Add milestone tracking to the fundraiser account"</span>
 
 git add programs/fundraiser/src/instructions programs/fundraiser/src/lib.rs
@@ -1578,9 +1624,9 @@ export ANCHOR_WALLET=~/.config/solana/id.json</code></pre>
         <summary><span class="tag">Error</span> does not exist in type ResolvedAccounts&lt;…&gt;</summary>
         <div class="d-body">
           <p>
-            Anchor 0.30 resolves some accounts for you and refuses to let <code>.accounts()</code>
+            Anchor resolves some accounts for you and refuses to let <code>.accounts()</code>
             set them. Use <code>.accountsPartial({ ... })</code>, which the shipped tests already
-            do. If you copied a snippet from older docs, this is why it does not compile.
+            do. If you copied a snippet from pre-0.30 docs, this is why it does not compile.
           </p>
         </div>
       </details>
@@ -1624,6 +1670,23 @@ export ANCHOR_WALLET=~/.config/solana/id.json</code></pre>
           <p>
             If you are minting, check the mint's authority is actually the fundraiser PDA and not
             the maker.
+          </p>
+        </div>
+      </details>
+
+      <details>
+        <summary><span class="tag">Error</span> ContributionTooSmall or InvalidAmount in your own tests</summary>
+        <div class="d-body">
+          <p>
+            Both minimums are in whole tokens, scaled by the mint's decimals. On a 6-decimal
+            mint that is <code>1_000_000</code> raw units per token — so a contribution must be
+            at least <code>1_000_000</code>, and a target must be more than
+            <code>3_000_000</code>.
+          </p>
+          <p>
+            Contributions are also capped at 10% of the target per contributor, so a target of
+            30 tokens allows at most 3 tokens from any one person. If you are writing a test that
+            needs to fill the vault, use several contributors.
           </p>
         </div>
       </details>
